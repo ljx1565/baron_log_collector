@@ -22,6 +22,8 @@ opt/
     ├── templates/
     │   └── dashboard.html   # 관제 페이지
     └── requirements.txt
+
+서비스 디렉터리: /etc/systemd/system/
 ```
 
 # 기타 사항
