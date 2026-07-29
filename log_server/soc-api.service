@@ -1,0 +1,21 @@
+[Unit]
+Description=SOC Central API + Dashboard
+After=network.target mariadb.service
+Requires=mariadb.service
+
+[Service]
+WorkingDirectory=/opt/soc-server
+ExecStart=/usr/bin/python3 /opt/soc-server/app.py
+Restart=always
+RestartSec=3
+User=root
+
+# DB 접속 정보 및 API 토큰 (실제 값으로 교체)
+Environment=SOC_DB_HOST=localhost
+Environment=SOC_DB_USER=soc
+Environment=SOC_DB_PASSWORD=CHANGE_ME
+Environment=SOC_DB_NAME=soc
+Environment=SOC_API_TOKEN=CHANGE_ME
+
+[Install]
+WantedBy=multi-user.target

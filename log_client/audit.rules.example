@@ -1,0 +1,26 @@
+# auditd 규칙 예시
+# 설치: sudo cp audit.rules.example /etc/audit/rules.d/soc.rules
+#       sudo augenrules --load
+#       sudo auditctl -l   # 로드됐는지 확인
+#
+# 주의: execve(명령어 실행) 감시는 로그량이 매우 많아진다.
+# 서버 부하나 저장 용량을 봐가면서 필요하면 마지막 두 줄은 빼도 된다.
+
+## 웹 서비스 디렉토리 변조 감시 (경로는 실제 웹루트로 수정)
+-w /var/www/html -p wa -k webshell_watch
+
+## 인증/계정 관련 파일 변조 감시
+-w /etc/passwd -p wa -k auth_watch
+-w /etc/shadow -p wa -k auth_watch
+-w /etc/sudoers -p wa -k auth_watch
+-w /etc/sudoers.d/ -p wa -k auth_watch
+
+## 명령어 실행(execve) 기록 - 64비트/32비트 아키텍처 모두
+#-a always,exit -F arch=b64 -S execve -k exec_watch
+#-a always,exit -F arch=b32 -S execve -k exec_watch
+
+## 웹 서버 계정이 직접 명령어를 실행하는 경우만 정밀 탐지 (웹쉘/RCE 신호)
+## 평소엔 절대 안 걸리는 게 정상 - 걸렸다면 웹쉘/RCE 의심.
+## euid는 실제 웹서버 프로세스 계정에 맞게 수정: `ps -eo user,comm | grep httpd` 로 확인
+-a always,exit -F arch=b64 -S execve -F euid=apache -k web_attack_check
+-a always,exit -F arch=b32 -S execve -F euid=apache -k web_attack_check

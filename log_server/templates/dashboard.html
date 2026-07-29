@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>서버 로그 통합 관제</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Sora:wght@600;700&family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  :root {
+    --bg: #F7F4EF;
+    --surface: #FFFFFF;
+    --surface-2: #F0EAE1;
+    --border: #E4DDD2;
+    --text-primary: #2B2825;
+    --text-secondary: #6E685F;
+    --text-muted: #A39C8F;
+    --accent: #C15F3C;
+    --accent-rgb: 193, 95, 60;
+
+    --sev-0: #D63A3A; --sev-1: #E0562B; --sev-2: #E8801F; --sev-3: #D9A320;
+    --sev-4: #B99A12; --sev-5: #2E7BD6; --sev-6: #74808C; --sev-7: #A6A099;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; } /* 페이지 자체는 절대 스크롤되지 않음 */
+  body {
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+  }
+  h1, h2, .display { font-family: 'Space Grotesk', 'Inter', sans-serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  button { font-family: inherit; }
+
+  /* ---- 상단 바 ---- */
+  .topbar {
+    flex: 0 0 auto; height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+    position: relative; z-index: 30;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-logo {
+    flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-family: 'Bricolage Grotesque', 'Sora', sans-serif; font-weight: 800;
+    font-size: 9px; letter-spacing: 0.4px;
+  }
+  .topbar h1 { font-family: 'Bricolage Grotesque', 'Sora', sans-serif; font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.3px; white-space: nowrap; }
+  .topbar-right { display: flex; align-items: center; gap: 18px; }
+
+  .legend { display: flex; align-items: center; gap: 8px; }
+  .legend-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin-right: 4px; }
+  .legend-tick {
+    width: 21px; height: 21px; border-radius: 6px; cursor: default; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.95);
+    transition: transform 0.15s ease, color 0.15s ease; transform-origin: center;
+  }
+  .legend-tick:hover { transform: scale(1.5); z-index: 25; color: transparent; }
+  .legend-tick::after {
+    content: attr(data-label);
+    position: absolute; top: 140%; left: 50%; transform: translateX(-50%);
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);
+    font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 6px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 0.15s ease; z-index: 30;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+  }
+  .legend-tick:hover::after { opacity: 1; }
+
+  .bell-wrap { position: relative; }
+  .bell-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-secondary); position: relative;
+  }
+  .bell-btn:hover { border-color: var(--text-muted); color: var(--text-primary); }
+  .bell-badge {
+    position: absolute; top: -5px; right: -5px; background: var(--sev-1); color: #FFFFFF;
+    font-size: 10px; font-weight: 600; border-radius: 20px; min-width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center; padding: 0 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .bell-dropdown {
+    display: none; position: absolute; top: 40px; right: 0; width: 320px; max-height: 360px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; box-shadow: 0 12px 28px rgba(43,40,37,0.12);
+  }
+  .bell-dropdown.open { display: block; }
+  .bell-dropdown-header { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.4px; }
+  .bell-dropdown-list { max-height: 310px; overflow-y: auto; }
+  .alert-item { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12.5px; display: flex; gap: 8px; }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--sev-1); margin-top: 5px; flex-shrink: 0; }
+  .alert-item .msg { flex: 1; line-height: 1.5; }
+  .alert-item .time { color: var(--text-muted); font-size: 10.5px; font-family: 'JetBrains Mono', monospace; }
+
+  .conn-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-secondary); }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+  .conn-dot.live { background: var(--accent); box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5); animation: pulse 2s infinite; }
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.45); }
+      70%  { box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0); }
+      100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
+    }
+  }
+
+  /* ---- 탭 바 (로그 페이지) ---- */
+  .tabbar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+    padding: 6px 12px 0; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .tabs { display: flex; align-items: flex-end; gap: 2px; overflow-x: auto; overflow-y: hidden; flex: 1; min-width: 0; }
+  .tab {
+    display: flex; align-items: center; gap: 4px; padding: 7px 10px; border-radius: 8px 8px 0 0;
+    font-size: 12.5px; font-weight: 500; color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+    border: 1px solid transparent; border-bottom: none; position: relative; top: 1px;
+  }
+  .tab-drag-handle {
+    cursor: grab; color: var(--text-muted); font-size: 13px; padding: 0 2px; user-select: none; line-height: 1;
+  }
+  .tab-drag-handle:hover { color: var(--text-secondary); }
+  .tab.dragging { opacity: 0.4; }
+  .tab:hover { background: var(--surface-2); }
+  .tab.active {
+    background: var(--bg); color: var(--text-primary); font-weight: 600;
+    border-color: var(--border); border-bottom: 1px solid var(--bg);
+  }
+  .tab-name { outline: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+  .tab-name[contenteditable="true"] {
+    background: var(--surface-2); border-radius: 4px; padding: 0 3px; max-width: 200px;
+  }
+  .tab-close {
+    background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+    width: 16px; height: 16px; border-radius: 4px; font-size: 12px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .tab-close:hover { color: var(--sev-1); background: var(--surface); }
+  .tab-add-btn {
+    flex-shrink: 0; background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; font-size: 12.5px; font-weight: 500; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  }
+  .tab-add-btn:hover { background: var(--surface-2); color: var(--accent); }
+  .tab-add-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .tab-add-btn:disabled:hover { background: transparent; color: var(--text-secondary); }
+
+  /* ---- 패널 툴바 ---- */
+  .panels-toolbar { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 16px 0; }
+  .hidden-panel-note {
+    font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 5px;
+  }
+  .hidden-panel-note .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--sev-4); flex-shrink: 0; }
+  .add-panel-btn {
+    background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 14px; font-size: 12.5px; font-weight: 500; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .add-panel-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .add-panel-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .add-panel-btn:disabled:hover { border-color: var(--border); color: var(--text-primary); }
+
+  /* ---- 페이지(탭)별 패널 영역 ---- */
+  .pages-container { flex: 1 1 auto; min-height: 0; position: relative; }
+  .panels-row { display: none; height: 100%; }
+  .panels-row.active { display: flex; flex-direction: row; gap: 14px; padding: 10px 16px 16px; height: 100%; }
+
+  .panel {
+    flex: 1 1 0; min-width: 0; height: 100%;
+    display: flex; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; position: relative;
+  }
+  .panel-header { flex: 0 0 auto; padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .panel-header .count { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+  .drag-handle {
+    cursor: grab; color: var(--text-muted); font-size: 22px; padding: 2px 8px;
+    user-select: none; line-height: 1; border-radius: 6px;
+  }
+  .drag-handle:hover { color: var(--accent); background: var(--surface-2); }
+  .drag-handle:active { cursor: grabbing; }
+  .panel.dragging { opacity: 0.4; }
+  .panel.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .watch-chips { display: flex; align-items: baseline; gap: 12px; flex: 1; min-width: 0; }
+  .chip-wrap { position: relative; }
+  .chip {
+    background: transparent; border: none; cursor: pointer; padding: 3px 6px; border-radius: 6px;
+    font-family: 'Space Grotesk', 'Inter', sans-serif; white-space: nowrap; max-width: 200px;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .chip:hover { background: var(--surface-2); }
+  .chip-host { display: flex; flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.2; }
+  .chip-host-name { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+  .chip-host-ip { font-size: 10px; font-weight: 500; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+  .chip-source, .chip-severity { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+  .chip-dropdown {
+    display: none; position: absolute; top: 130%; left: 0; min-width: 170px; max-height: 260px;
+    overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 10px 24px rgba(43,40,37,0.14); z-index: 40; padding: 4px;
+  }
+  .chip-dropdown.open { display: block; }
+  .chip-dropdown-item {
+    padding: 6px 10px; font-size: 12.5px; border-radius: 6px; cursor: pointer; color: var(--text-primary);
+    white-space: nowrap; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .chip-dropdown-item:hover { background: var(--surface-2); }
+  .chip-dropdown-item.active { color: var(--accent); font-weight: 600; }
+  .new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--sev-0); flex-shrink: 0; }
+  .panel-close {
+    background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 15px;
+    width: 22px; height: 22px; border-radius: 6px; line-height: 1;
+  }
+  .panel-close:hover { color: var(--sev-1); background: var(--surface-2); }
+
+  /* ---- 로그 그리드 (table 대신 CSS Grid) ---- */
+  .log-grid {
+    display: grid;
+    grid-template-columns:
+      minmax(0, max-content) minmax(0, max-content) minmax(0, max-content)
+      minmax(0, max-content) minmax(0, max-content) minmax(0, max-content)
+      minmax(100px, 1fr);
+    column-gap: 10px;
+    padding: 0 14px;
+  }
+  .log-grid .head-cell {
+    position: sticky; top: 0; background: var(--surface); z-index: 2;
+    font-size: 10px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.4px; padding: 3px 0; border-bottom: 1px solid var(--border);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-row { display: contents; }
+  .log-row .cell {
+    padding: 2.5px 0; border-bottom: 1px solid var(--border); font-size: 11.5px; line-height: 1.3;
+    display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-row .cell.summary { white-space: normal; text-overflow: clip; overflow-wrap: anywhere; word-break: break-word; }
+  .log-row .cell.summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .kv {
+    display: inline-flex; align-items: baseline; gap: 4px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-primary); background: var(--surface-2); border-radius: 5px; padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .kv-label { color: var(--text-muted); }
+  .log-row:hover .cell { background: var(--surface-2); }
+  .log-row.flash .cell { animation: flashRow 1.2s ease-out; }
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes flashRow { from { background: rgba(var(--accent-rgb), 0.14); } to { background: transparent; } }
+  }
+  .event-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  .log-grid.hide-source .col-source { display: none; }
+  .log-grid.hide-host .col-host { display: none; }
+
+  /* 셀이 숨겨져도(호스트/소스 필터 등) 자동배치 순서가 밀리지 않도록 컬럼 위치를 명시적으로 고정 */
+  .col-date { grid-column: 1; }
+  .col-time { grid-column: 2; }
+  .col-host { grid-column: 3; }
+  .col-source { grid-column: 4; }
+  .col-severity { grid-column: 5; }
+  .col-srcip { grid-column: 6; }
+  .col-summary { grid-column: 7; }
+
+  .sev-badge {
+    display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 20px;
+    font-size: 10px; font-weight: 500; white-space: nowrap; line-height: 1.4;
+  }
+  .sev-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .text-secondary { color: var(--text-secondary); }
+  .text-muted { color: var(--text-muted); }
+  .empty-state { padding: 26px 14px; text-align: center; color: var(--text-muted); font-size: 12.5px; }
+
+  /* ---- 창이 좁아지면: 3번째 -> 2번째 패널 순으로 완전히 숨겨지고(display:none),
+     나머지 패널이 남는 공간을 채운다. 몇 개 숨었는지는 툴바 안내 문구로 표시 ---- */
+  @media (max-width: 1300px) {
+    .panels-row.active .panel:nth-child(3) { display: none; }
+  }
+  @media (max-width: 950px) {
+    .panels-row.active .panel:nth-child(2) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-logo">LOG</div>
+    <h1>서버 로그 통합 관제</h1>
+  </div>
+  <div class="topbar-right">
+    <div class="legend" id="legend">
+      <span class="legend-label">심각도</span>
+    </div>
+    <div class="bell-wrap">
+      <button class="bell-btn" id="bellBtn" aria-label="알림">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="bell-badge" id="bellBadge" style="display:none">0</span>
+      </button>
+      <div class="bell-dropdown" id="bellDropdown">
+        <div class="bell-dropdown-header">알림</div>
+        <div class="bell-dropdown-list" id="alertList"><div class="empty-state">알림 없음</div></div>
+      </div>
+    </div>
+    <button class="bell-btn" id="resetBtn" aria-label="탭/패널 초기화" title="탭/패널 구성 초기화">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+    </button>
+    <div class="conn-status">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connLabel">연결 중...</span>
+    </div>
+  </div>
+</div>
+
+<div class="tabbar">
+  <div class="tabs" id="tabsList"></div>
+  <button class="tab-add-btn" id="addTabBtn" title="새 로그 페이지">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    탭 추가
+  </button>
+</div>
+
+<div class="panels-toolbar">
+  <span class="hidden-panel-note" id="hiddenPanelNote"></span>
+  <button class="add-panel-btn" id="addPanelBtn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    패널 추가
+  </button>
+</div>
+
+<div class="pages-container" id="pagesContainer"></div>
+
+<script>
+const MAX_PANELS_PER_PAGE = 3;
+const MAX_PAGES = 5;
+const SEVERITY_LABELS = ['Emergency','Alert','Critical','Error','Warning','Notice','Informational','Debug'];
+const SEVERITY_COLORS = ['var(--sev-0)','var(--sev-1)','var(--sev-2)','var(--sev-3)','var(--sev-4)','var(--sev-5)','var(--sev-6)','var(--sev-7)'];
+
+let META = { hosts: [], sources: [] };
+let HOST_IP_MAP = new Map();
+let KNOWN_SOURCES = new Set();
+let NEW_SOURCES = new Set();
+let PAGES = [];
+let activePageId = null;
+let pageSeq = 0;
+let panelSeq = 0;
+
+function sevBadge(sev) {
+  const color = SEVERITY_COLORS[sev] ?? 'var(--sev-7)';
+  return `<span class="sev-badge" style="background:${color}22; color:${color}">
+            <span class="sev-dot" style="background:${color}"></span>${sev}
+          </span>`;
+}
+
+function parseUTC(isoStr) {
+  if (!isoStr) return new Date(NaN);
+  const s = isoStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]/.test(s)) {
+    let norm = s.replace(' ', 'T').replace(/(\.\d{3})\d*$/, '$1');
+    if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(norm)) norm += 'Z';
+    return new Date(norm);
+  }
+  return new Date(s);
+}
+
+function dateLabel(isoStr) {
+  const d = parseUTC(isoStr);
+  if (isNaN(d.getTime())) return isoStr ?? '-';
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
+}
+
+function timeLabel(isoStr) {
+  const d = parseUTC(isoStr);
+  if (isNaN(d.getTime())) {
+    console.warn('시간 파싱 실패, 원본 값:', isoStr);
+    return isoStr ?? '-';
+  }
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mi}:${ss}`;
+}
+
+function buildLegend() {
+  const legend = document.getElementById('legend');
+  SEVERITY_LABELS.forEach((label, i) => {
+    const tick = document.createElement('span');
+    tick.className = 'legend-tick';
+    tick.style.background = SEVERITY_COLORS[i];
+    tick.dataset.label = label;
+    tick.textContent = i;
+    legend.appendChild(tick);
+  });
+}
+
+function renderAlertItem(alert) {
+  const div = document.createElement('div');
+  div.className = 'alert-item';
+  div.innerHTML = `
+    <div class="dot"></div>
+    <div class="msg">${(alert.message ?? '').replace(/</g, '&lt;')}
+      <div class="time">${timeLabel(alert.triggered_at)}</div>
+    </div>
+  `;
+  return div;
+}
+
+async function loadAlerts() {
+  const res = await fetch('/api/alerts?unread_only=1');
+  const rows = await res.json();
+  const list = document.getElementById('alertList');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div class="empty-state">알림 없음</div>';
+  } else {
+    rows.forEach(a => list.appendChild(renderAlertItem(a)));
+  }
+  const badge = document.getElementById('bellBadge');
+  badge.textContent = rows.length;
+  badge.style.display = rows.length ? 'flex' : 'none';
+}
+
+document.getElementById('bellBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('bellDropdown').classList.toggle('open');
+});
+document.addEventListener('click', (e) => {
+  const dd = document.getElementById('bellDropdown');
+  if (!dd.contains(e.target) && e.target.id !== 'bellBtn') dd.classList.remove('open');
+});
+
+function esc(s) {
+  return (s ?? '').toString().replace(/</g, '&lt;');
+}
+
+function kv(label, value) {
+  if (value === undefined || value === null || value === '') return '';
+  return `<span class="kv"><span class="kv-label">${esc(label)}</span>${esc(value)}</span>`;
+}
+
+function buildSummaryContent(ev) {
+  const d = ev.details || {};
+  if (ev.source_name === 'web_access' && d.method && d.uri) {
+    return kv('method', d.method) + kv('uri', d.uri) + kv('status', d.status)
+      + kv('bytes', d.bytes) + kv('referer', d.referer && d.referer !== '-' ? d.referer : null);
+  }
+  if (ev.source_name === 'audit') {
+    return kv('key', d.key && d.key !== '-' ? d.key : null)
+      + kv('user', d.UID || d.AUID)
+      + kv('comm', d.comm)
+      + kv('exe', d.exe)
+      + kv('success', d.success);
+  }
+  return esc(ev.summary);
+}
+
+function renderEventRow(ev) {
+  const row = document.createElement('div');
+  row.className = 'log-row flash';
+  row.innerHTML = `
+    <div class="cell col-date mono text-muted">${dateLabel(ev.event_time)}</div>
+    <div class="cell col-time mono text-muted">${timeLabel(ev.event_time)}</div>
+    <div class="cell col-host mono">${ev.hostname ?? ''}</div>
+    <div class="cell col-source text-secondary">${ev.source_name ?? ''}</div>
+    <div class="cell col-severity">${sevBadge(ev.severity)}</div>
+    <div class="cell col-srcip mono text-secondary">${ev.src_ip ?? '-'}</div>
+    <div class="cell col-summary summary">${buildSummaryContent(ev)}</div>
+  `;
+  return row;
+}
+
+function passesFilter(panel, ev) {
+  const f = panel.filters;
+  if (f.host && ev.hostname !== f.host) return false;
+  if (f.source && ev.source_name !== f.source) return false;
+  if (ev.severity > parseInt(f.maxSeverity, 10)) return false;
+  return true;
+}
+
+function updateColumnVisibility(panel) {
+  const grid = panel.el.querySelector('.log-grid');
+  grid.classList.toggle('hide-source', !!panel.filters.source);
+  grid.classList.toggle('hide-host', !!panel.filters.host);
+}
+
+function refreshChips(panel) {
+  const nameEl = panel.el.querySelector('.chip-host-name');
+  const ipEl = panel.el.querySelector('.chip-host-ip');
+  if (panel.filters.host) {
+    nameEl.textContent = panel.filters.host;
+    ipEl.textContent = HOST_IP_MAP.get(panel.filters.host) || '';
+  } else {
+    nameEl.textContent = '모든 호스트';
+    ipEl.textContent = '';
+  }
+  panel.el.querySelector('.chip-source').textContent = panel.filters.source || '전체 소스';
+  const sev = panel.filters.maxSeverity;
+  panel.el.querySelector('.chip-severity').textContent =
+    sev === '7' ? `${sev} · ${SEVERITY_LABELS[sev]}` : `${sev} · ${SEVERITY_LABELS[sev]} 이상`;
+}
+
+function closeAllDropdowns() {
+  document.querySelectorAll('.chip-dropdown.open').forEach(d => d.classList.remove('open'));
+}
+document.addEventListener('click', () => closeAllDropdowns());
+
+function buildDropdownItems(dropdownEl, options, currentValue, onPick) {
+  dropdownEl.innerHTML = '';
+  options.forEach(opt => {
+    const item = document.createElement('div');
+    item.className = 'chip-dropdown-item' + (opt.value === currentValue ? ' active' : '');
+    item.innerHTML = `<span>${opt.label}</span>${opt.isNew ? '<span class="new-dot" title="새로 생긴 로그 종류"></span>' : ''}`;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      onPick(opt.value);
+      closeAllDropdowns();
+    });
+    dropdownEl.appendChild(item);
+  });
+}
+
+async function loadEventsForPanel(panel) {
+  const params = new URLSearchParams({ limit: 100 });
+  if (panel.filters.host) params.set('host', panel.filters.host);
+  if (panel.filters.source) params.set('source', panel.filters.source);
+  params.set('max_severity', panel.filters.maxSeverity);
+
+  const res = await fetch('/api/events?' + params.toString());
+  const rows = await res.json();
+  panel.logGrid.querySelectorAll('.log-row').forEach(r => r.remove());
+  rows.forEach(ev => panel.logGrid.appendChild(renderEventRow(ev)));
+  panel.el.querySelector('.empty-state')?.remove();
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '이벤트 없음';
+    panel.el.querySelector('.event-scroll').appendChild(empty);
+  }
+  panel.el.querySelector('.count').textContent = rows.length + '건';
+}
+
+function updateAddPanelBtnState(page) {
+  const btn = document.getElementById('addPanelBtn');
+  btn.disabled = page.panels.length >= MAX_PANELS_PER_PAGE;
+}
+
+function updateHiddenPanelIndicator() {
+  const page = PAGES.find(p => p.id === activePageId);
+  const note = document.getElementById('hiddenPanelNote');
+  if (!page) { note.textContent = ''; return; }
+  const w = window.innerWidth;
+  let hidden = 0;
+  if (w <= 1300 && page.panels.length >= 3) hidden += 1;
+  if (w <= 950 && page.panels.length >= 2) hidden += 1;
+  note.innerHTML = hidden > 0
+    ? `<span class="dot"></span>패널 ${hidden}개 숨김`
+    : '';
+}
+window.addEventListener('resize', updateHiddenPanelIndicator);
+
+function createPanel(page, initialFilters = { host: '', source: '', maxSeverity: '7' }) {
+  if (page.panels.length >= MAX_PANELS_PER_PAGE) return null;
+
+  const id = 'panel-' + (++panelSeq);
+  const el = document.createElement('div');
+  el.className = 'panel';
+  el.dataset.panelId = id;
+  el.innerHTML = `
+    <div class="panel-header">
+      <span class="drag-handle" draggable="true" title="드래그해서 위치 이동">⠿</span>
+      <div class="watch-chips">
+        <div class="chip-wrap">
+          <button class="chip chip-host" type="button">
+            <span class="chip-host-name"></span>
+            <span class="chip-host-ip"></span>
+          </button>
+          <div class="chip-dropdown host-dropdown"></div>
+        </div>
+        <div class="chip-wrap">
+          <button class="chip chip-source" type="button"></button>
+          <div class="chip-dropdown source-dropdown"></div>
+        </div>
+        <div class="chip-wrap">
+          <button class="chip chip-severity" type="button"></button>
+          <div class="chip-dropdown severity-dropdown"></div>
+        </div>
+      </div>
+      <span class="count mono">0건</span>
+      <button class="panel-close" title="패널 닫기">&times;</button>
+    </div>
+    <div class="event-scroll">
+      <div class="log-grid">
+        <div class="head-cell col-date">날짜</div>
+        <div class="head-cell col-time">시간</div>
+        <div class="head-cell col-host">호스트</div>
+        <div class="head-cell col-source">소스</div>
+        <div class="head-cell col-severity">심각도</div>
+        <div class="head-cell col-srcip">src IP</div>
+        <div class="head-cell col-summary">요약</div>
+      </div>
+    </div>
+  `;
+
+  const panel = {
+    id, el,
+    logGrid: el.querySelector('.log-grid'),
+    filters: { ...initialFilters },
+  };
+
+  const chipHost = el.querySelector('.chip-host');
+  const chipSource = el.querySelector('.chip-source');
+  const chipSeverity = el.querySelector('.chip-severity');
+  const hostDropdown = el.querySelector('.host-dropdown');
+  const sourceDropdown = el.querySelector('.source-dropdown');
+  const severityDropdown = el.querySelector('.severity-dropdown');
+
+  function applyFilterChange() {
+    updateColumnVisibility(panel);
+    refreshChips(panel);
+    loadEventsForPanel(panel);
+    saveState();
+  }
+
+  chipHost.addEventListener('click', e => {
+    e.stopPropagation();
+    const wasOpen = hostDropdown.classList.contains('open');
+    closeAllDropdowns();
+    if (wasOpen) return;
+    const options = [
+      { value: '', label: '모든 호스트' },
+      ...META.hosts.map(h => ({ value: h.hostname, label: h.ip_address ? `${h.hostname} (${h.ip_address})` : h.hostname })),
+    ];
+    buildDropdownItems(hostDropdown, options, panel.filters.host, val => {
+      panel.filters.host = val;
+      applyFilterChange();
+    });
+    hostDropdown.classList.add('open');
+  });
+
+  chipSource.addEventListener('click', e => {
+    e.stopPropagation();
+    const wasOpen = sourceDropdown.classList.contains('open');
+    closeAllDropdowns();
+    if (wasOpen) return;
+    const options = [
+      { value: '', label: '전체 소스' },
+      ...META.sources.map(s => ({ value: s, label: s, isNew: NEW_SOURCES.has(s) })),
+    ];
+    buildDropdownItems(sourceDropdown, options, panel.filters.source, val => {
+      panel.filters.source = val;
+      applyFilterChange();
+    });
+    sourceDropdown.classList.add('open');
+    NEW_SOURCES.clear();
+  });
+
+  chipSeverity.addEventListener('click', e => {
+    e.stopPropagation();
+    const wasOpen = severityDropdown.classList.contains('open');
+    closeAllDropdowns();
+    if (wasOpen) return;
+    const options = SEVERITY_LABELS
+      .map((label, i) => ({ value: String(i), label: i === 7 ? `${i} · ${label}` : `${i} · ${label} 이상` }))
+      .reverse();
+    buildDropdownItems(severityDropdown, options, panel.filters.maxSeverity, val => {
+      panel.filters.maxSeverity = val;
+      applyFilterChange();
+    });
+    severityDropdown.classList.add('open');
+  });
+
+  el.querySelector('.panel-close').addEventListener('click', () => {
+    page.panels = page.panels.filter(p => p.id !== id);
+    el.remove();
+    updateAddPanelBtnState(page);
+    updateHiddenPanelIndicator();
+    saveState();
+  });
+
+  const handle = el.querySelector('.drag-handle');
+  handle.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setDragImage(el, 20, 20);
+    el.classList.add('dragging');
+  });
+  handle.addEventListener('dragend', () => el.classList.remove('dragging'));
+
+  el.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!el.classList.contains('dragging')) el.classList.add('drop-target');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.classList.remove('drop-target');
+    const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId || draggedId === id) return;
+    const draggedEl = document.querySelector(`[data-panel-id="${draggedId}"]`);
+    if (!draggedEl) return;
+    const row = el.closest('.panels-row');
+    const targetIndex = Array.from(row.children).indexOf(el);
+    const draggedIndex = Array.from(row.children).indexOf(draggedEl);
+    if (draggedIndex < targetIndex) {
+      row.insertBefore(draggedEl, el.nextSibling);
+    } else {
+      row.insertBefore(draggedEl, el);
+    }
+    saveState();
+  });
+
+  page.rowEl.appendChild(el);
+  updateColumnVisibility(panel);
+  refreshChips(panel);
+  page.panels.push(panel);
+  loadEventsForPanel(panel);
+  updateAddPanelBtnState(page);
+  updateHiddenPanelIndicator();
+  saveState();
+  return panel;
+}
+
+/* ---- 탭(로그 페이지) ---- */
+function renderTabs() {
+  const list = document.getElementById('tabsList');
+  list.innerHTML = '';
+  PAGES.forEach(page => {
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (page.id === activePageId ? ' active' : '');
+    tab.dataset.pageId = page.id;
+    tab.innerHTML = `
+      <span class="tab-drag-handle" draggable="true" title="드래그해서 순서 이동">⠿</span>
+      <span class="tab-name mono" spellcheck="false">${page.name}</span>
+      ${PAGES.length > 1 ? '<button class="tab-close" title="탭 닫기">&times;</button>' : ''}
+    `;
+    const nameEl = tab.querySelector('.tab-name');
+    const handle = tab.querySelector('.tab-drag-handle');
+
+    tab.addEventListener('click', e => {
+      if (nameEl.isContentEditable) return;
+      if (e.target.classList.contains('tab-close')) return;
+      switchToPage(page.id);
+    });
+
+    handle.addEventListener('dragstart', e => {
+      e.stopPropagation();
+      e.dataTransfer.setData('text/plain', page.id);
+      e.dataTransfer.effectAllowed = 'move';
+      tab.classList.add('dragging');
+    });
+    handle.addEventListener('dragend', () => tab.classList.remove('dragging'));
+    tab.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    tab.addEventListener('drop', e => {
+      e.preventDefault();
+      const draggedId = e.dataTransfer.getData('text/plain');
+      if (!draggedId || draggedId === page.id) return;
+      const fromIdx = PAGES.findIndex(p => p.id === draggedId);
+      const toIdx = PAGES.findIndex(p => p.id === page.id);
+      if (fromIdx === -1 || toIdx === -1) return;
+      const [moved] = PAGES.splice(fromIdx, 1);
+      PAGES.splice(toIdx, 0, moved);
+      renderTabs();
+      saveState();
+    });
+
+    nameEl.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      nameEl.contentEditable = 'true';
+      nameEl.focus();
+      const range = document.createRange();
+      range.selectNodeContents(nameEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    nameEl.addEventListener('blur', () => {
+      nameEl.contentEditable = 'false';
+      const newName = nameEl.textContent.trim() || '이름 없음';
+      page.name = newName;
+      nameEl.textContent = newName;
+      saveState();
+    });
+    nameEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); nameEl.blur(); }
+      if (e.key === 'Escape') { nameEl.textContent = page.name; nameEl.blur(); }
+    });
+
+    const closeBtn = tab.querySelector('.tab-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        closePage(page.id);
+      });
+    }
+
+    list.appendChild(tab);
+  });
+}
+
+function updateAddTabBtnState() {
+  document.getElementById('addTabBtn').disabled = PAGES.length >= MAX_PAGES;
+}
+
+function createPage(name) {
+  const id = 'page-' + (++pageSeq);
+  const rowEl = document.createElement('div');
+  rowEl.className = 'panels-row';
+  document.getElementById('pagesContainer').appendChild(rowEl);
+  const page = { id, name, rowEl, panels: [] };
+  PAGES.push(page);
+  renderTabs();
+  return page;
+}
+
+function switchToPage(id) {
+  activePageId = id;
+  PAGES.forEach(p => p.rowEl.classList.toggle('active', p.id === id));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.pageId === id));
+  const page = PAGES.find(p => p.id === id);
+  if (page) updateAddPanelBtnState(page);
+  updateHiddenPanelIndicator();
+  saveState();
+}
+
+function closePage(id) {
+  const idx = PAGES.findIndex(p => p.id === id);
+  if (idx === -1 || PAGES.length <= 1) return;
+  const page = PAGES[idx];
+  page.rowEl.remove();
+  PAGES.splice(idx, 1);
+  if (activePageId === id) {
+    const next = PAGES[Math.max(0, idx - 1)];
+    switchToPage(next.id);
+  } else {
+    renderTabs();
+  }
+  updateAddTabBtnState();
+  saveState();
+}
+
+document.getElementById('addTabBtn').addEventListener('click', () => {
+  if (PAGES.length >= MAX_PAGES) return;
+  const page = createPage('로그 페이지 ' + PAGES.length);
+  switchToPage(page.id);
+  createPanel(page);
+  updateAddTabBtnState();
+});
+
+document.getElementById('addPanelBtn').addEventListener('click', () => {
+  const page = PAGES.find(p => p.id === activePageId);
+  if (page) createPanel(page);
+});
+
+async function loadMeta() {
+  const res = await fetch('/api/meta');
+  META = await res.json();
+  HOST_IP_MAP = new Map(META.hosts.map(h => [h.hostname, h.ip_address]));
+  KNOWN_SOURCES = new Set(META.sources);
+}
+
+/* ---- 새로고침해도 유지되는 상태 저장/복원 (localStorage) ---- */
+const STORAGE_KEY = 'soc_dashboard_layout_v1';
+
+function saveState() {
+  try {
+    const snapshot = {
+      activeIndex: PAGES.findIndex(p => p.id === activePageId),
+      pages: PAGES.map(p => ({
+        name: p.name,
+        panels: p.panels.map(panel => ({ ...panel.filters })),
+      })),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+  } catch (err) {
+    console.warn('레이아웃 저장 실패:', err);
+  }
+}
+
+function loadSavedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.pages) || !parsed.pages.length) return null;
+    return parsed;
+  } catch (err) {
+    console.warn('레이아웃 복원 실패:', err);
+    return null;
+  }
+}
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('탭/패널 구성을 전부 초기화할까요? 되돌릴 수 없어요.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
+});
+
+(async function init() {
+  buildLegend();
+  await loadMeta();
+
+  const saved = loadSavedState();
+  if (saved) {
+    saved.pages.forEach(pdata => {
+      const page = createPage(pdata.name || '로그 페이지');
+      (pdata.panels && pdata.panels.length ? pdata.panels : [{ host: '', source: '', maxSeverity: '7' }])
+        .forEach(f => createPanel(page, f));
+    });
+    const target = PAGES[saved.activeIndex] || PAGES[0];
+    switchToPage(target.id);
+  } else {
+    const firstPage = createPage('로그 페이지 1');
+    switchToPage(firstPage.id);
+    createPanel(firstPage);
+  }
+  updateAddTabBtnState();
+  loadAlerts();
+})();
+
+const socket = io();
+socket.on('connect', () => {
+  document.getElementById('connDot').classList.add('live');
+  document.getElementById('connLabel').textContent = '실시간 연결됨';
+});
+socket.on('disconnect', () => {
+  document.getElementById('connDot').classList.remove('live');
+  document.getElementById('connLabel').textContent = '연결 끊김';
+});
+socket.on('new_event', ev => {
+  if (ev.source_name && !KNOWN_SOURCES.has(ev.source_name)) {
+    KNOWN_SOURCES.add(ev.source_name);
+    NEW_SOURCES.add(ev.source_name);
+    if (!META.sources.includes(ev.source_name)) META.sources.push(ev.source_name);
+  }
+  PAGES.flatMap(p => p.panels).forEach(panel => {
+    if (!passesFilter(panel, ev)) return;
+    panel.el.querySelector('.empty-state')?.remove();
+    const firstRow = panel.logGrid.querySelector('.log-row');
+    panel.logGrid.insertBefore(renderEventRow(ev), firstRow);
+    const rows = panel.logGrid.querySelectorAll('.log-row');
+    panel.el.querySelector('.count').textContent = rows.length + '건';
+    if (rows.length > 200) rows[rows.length - 1].remove();
+  });
+});
+socket.on('new_alert', () => { loadAlerts(); });
+</script>
+</body>
+</html>

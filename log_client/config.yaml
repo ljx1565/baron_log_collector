@@ -1,0 +1,116 @@
+# ============================================================
+# 수집기(collector) 설정
+# 이 서버(hostname)에서 어떤 로그 소스를 어떻게 읽어서 보낼지 정의한다.
+# 실제 배포 시 log_path / conf_path 값을 각 서버 환경에 맞게 수정할 것.
+# ============================================================
+
+hostname: "server01"          # 이 서버의 식별 이름 (hosts.hostname 과 매칭)
+api_url: "http://localhost:5000/api/events"
+api_token: "asd123"        # 서버 API 인증 토큰
+
+sources:
+  # --- H-IDS (Suricata, eve.json은 이미 JSON이라 파싱이 쉬움) ---
+  - name: suricata_hids
+    type: json
+    log_path: "/var/log/suricata/eve.json"
+    event_time_field: "timestamp"
+    src_ip_field: "src_ip"
+    dst_ip_field: "dest_ip"
+    category: "hids_alert"
+    severity_rule: "suricata"
+
+  # --- 웹서버 access log (conf 파일의 LogFormat을 읽어 동적으로 파싱) ---
+  - name: web_access
+    type: conf_format
+    log_path: "/var/log/httpd/access_log"
+    conf_path: "/etc/httpd/conf/httpd.conf"
+    conf_style: "apache"        # apache | nginx
+    format_name: "combined"     # conf 안에서 찾을 LogFormat 이름
+    event_time_field: "time_local"
+    src_ip_field: "remote_addr"
+    category: "web_access"
+    severity_rule: "http_status"
+
+  # --- systemd journal (cron/auth(secure+pam)/rsyslog/messages/firewalld/chrony로 자동 분류됨) ---
+  # firewalld 규칙변경 + 차단패킷(LogDenied 설정 필요), chrony 동기화 이벤트도
+  # 이 하나의 journal 스트림에서 함께 분류되므로 별도 항목 필요 없음
+  - name: journal
+    type: journal
+
+  # --- dnf 패키지 설치/변경 이력 ---
+  - name: dnf
+    type: dnf
+    log_path: "/var/log/dnf.log"
+    event_time_field: "timestamp"
+    category: "package_mgmt"
+    severity_rule: "dnf"
+
+  # --- PHP 에러 로그 (실제 경로는 php.ini의 error_log 값 확인) ---
+  - name: php_error
+    type: php_error
+    log_path: "/var/log/php-fpm/error.log"
+    event_time_field: "timestamp"
+    category: "php_error"
+    severity_rule: "php_error"
+
+  # --- audit(auditd): 웹 디렉토리/인증 파일 변조 + execve 기록 ---
+  # 아래 규칙을 먼저 적용해야 실제 이벤트가 남는다 (audit.rules.example 참고)
+  #   sudo cp audit.rules.example /etc/audit/rules.d/soc.rules
+  #   sudo augenrules --load
+  - name: audit
+    type: audit
+    log_path: "/var/log/audit/audit.log"
+    category: "audit"
+    severity_rule: "audit"
+
+  # --- 계정 잠김 (faillock, tallylog 대체 - Rocky 8/9는 tallylog 파일이 없음) ---
+  - name: tallylog
+    type: polling
+    parser: faillock
+    command: ["faillock"]
+    interval_sec: 30
+    event_time_field: "when"
+    src_ip_field: "source"
+    category: "account_lockout"
+    severity_rule: "failed_login"
+
+  # --- 실패한 로그인 세션 (btmp) ---
+  - name: btmp
+    type: polling
+    parser: last_line
+    command: ["lastb", "-F"]
+    interval_sec: 30
+    src_ip_field: "src_ip"
+    category: "failed_login"
+    severity_rule: "failed_login"
+
+  # --- 로그인 세션 기록 (wtmp) ---
+  - name: wtmp
+    type: polling
+    parser: last_line
+    command: ["last", "-F"]
+    interval_sec: 30
+    src_ip_field: "src_ip"
+    category: "login_session"
+    severity_rule: "last_login"
+
+  # --- Samba (smbd 로그) ---
+  - name: samba
+    type: samba
+    log_path: "/var/log/samba/log.smbd"
+    category: "file_access"
+    severity_rule: "samba"
+
+  # --- MariaDB 에러 로그 ---
+  - name: mariadb
+    type: mariadb
+    log_path: "/var/log/mariadb/mariadb.log"
+    category: "db_log"
+    severity_rule: "mariadb"
+
+  # --- DNS (BIND named 쿼리 로그) ---
+  - name: dns
+    type: dns
+    log_path: "/var/log/named/query.log"
+    category: "dns_query"
+    severity_rule: "dns"
