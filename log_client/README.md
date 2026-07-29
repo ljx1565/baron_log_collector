@@ -18,7 +18,7 @@ After=network.target log-server.service
 Wants=log-server.service
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/collector/main.py
+ExecStart=/usr/bin/python3 /opt/log_client/main.py
 WorkingDirectory=/opt/collector
 Restart=always
 User=root
