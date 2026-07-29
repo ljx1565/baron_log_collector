@@ -25,13 +25,23 @@ opt/
 ```
 
 # 기타 사항
+```
 alert_rules 테이블에 실제 규칙 데이터 삽입
 대시보드 인증/접근 제어 (지금은 누구나 `/`에 접속 가능)
+```
 
-# 추가 로그 소스 설정 (dnf/php_error/audit/tallylog/btmp/wtmp/firewalld/chrony)
+# 추가 로그 소스 설정
+```
+dnf/php_error/audit/tallylog/btmp/wtmp/firewalld/chrony
+```
 
 # firewalld 차단 패킷 로깅 설정
+```
 sudo firewall-cmd --set-log-denied=all
 sudo firewall-cmd --reload
+```
 
-# tallylog/btmp/wtmp — tail 명령어가 안 막히는 바이너리 로그는 faillock / lastb / last 명령을 30초 간격으로 실행해 이전 결과와 비교(diff)하는 방식으로 동작 (opt/log_client/main.py의 run_polling_source)
+# tallylog/btmp/wtmp
+```
+tail 명령어가 안 막히는 바이너리 로그는 faillock / lastb / last 명령을 30초 간격으로 실행해 이전 결과와 비교(diff)하는 방식으로 동작 (opt/log_client/main.py의 run_polling_source)
+```
