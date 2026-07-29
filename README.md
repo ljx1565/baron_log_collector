@@ -1,4 +1,4 @@
-# 구조
+## 구조
 
 opt/
 ├── log_client/
@@ -36,4 +36,4 @@ opt/
 sudo firewall-cmd --set-log-denied=all
 sudo firewall-cmd --reload
 
-**tallylog/btmp/wtmp** — tail 명령어가 안 막히는 바이너리 로그는 faillock / lastb / last 명령을 30초 간격으로 실행해 이전 결과와 비교(diff)하는 방식으로 동작 (opt/log_client/main.py의 run_polling_source)
+## tallylog/btmp/wtmp — tail 명령어가 안 막히는 바이너리 로그는 faillock / lastb / last 명령을 30초 간격으로 실행해 이전 결과와 비교(diff)하는 방식으로 동작 (opt/log_client/main.py의 run_polling_source)
