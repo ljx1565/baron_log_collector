@@ -1,4 +1,5 @@
 # 구조
+
 opt/
 ├── log_client/
 │   ├── config.yaml          # 로그 소스 정의 (경로/conf 파일 등 환경에 맞게 수정)
