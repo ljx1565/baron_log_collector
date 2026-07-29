@@ -17,7 +17,7 @@ Requires=mariadb.service
 
 [Service]
 ExecStart=/usr/bin/python3 /opt/log_server/app.py
-WorkingDirectory=/opt/server
+WorkingDirectory=/opt/log_server
 Restart=always
 User=root
 Environment=SOC_DB_HOST=localhost
