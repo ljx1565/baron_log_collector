@@ -1,15 +1,16 @@
-0. dnf install httpd -y
-   dnf install Mariadb -y
-   dnf install pip -y
-   dnf install python3 -y
+## sh 실행 시 아래가 실행됩니다.
 
-1. mysql -u root -p < /opt/log_server/schema.sql
+```
+dnf install httpd -y
+dnf install Mariadb -y
+dnf install pip -y
+dnf install python3 -y
 
-2. pip install -r /opt/log_server/requirements.txt
-
+mysql -u root -p < /opt/log_server/schema.sql
+pip install -r /opt/log_server/requirements.txt
 
 # server 서비스 등록
-cat /etc/systemd/system/log-server.service
+cat << 'EOF' | sudo tee /etc/systemd/system/log-server.service
 [Unit]
 Description=API service
 After=network.target mariadb.service
@@ -28,6 +29,8 @@ Environment=SOC_API_TOKEN=asd123
 
 [Install]
 WantedBy=multi-user.target
+EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now log-server
+```
