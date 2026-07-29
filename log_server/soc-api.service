@@ -4,8 +4,8 @@ After=network.target mariadb.service
 Requires=mariadb.service
 
 [Service]
-WorkingDirectory=/opt/soc-server
-ExecStart=/usr/bin/python3 /opt/soc-server/app.py
+WorkingDirectory=/opt/log_server
+ExecStart=/usr/bin/python3 /opt/log_server/app.py
 Restart=always
 RestartSec=3
 User=root
