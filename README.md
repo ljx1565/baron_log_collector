@@ -1,5 +1,5 @@
 # 구조
-'''
+```
 opt/
 ├── log_client/
 │   ├── config.yaml          # 로그 소스 정의 (경로/conf 파일 등 환경에 맞게 수정)
@@ -22,8 +22,7 @@ opt/
     ├── templates/
     │   └── dashboard.html   # 관제 페이지
     └── requirements.txt
-'''
-
+```
 
 # 기타 사항
 alert_rules 테이블에 실제 규칙 데이터 삽입
